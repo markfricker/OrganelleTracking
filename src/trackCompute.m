@@ -61,8 +61,14 @@ function tracks = trackCompute(labelStack, p)
         detections = trackDetectionsExtract(labelStack, p, wb, 0.00, 0.40);
 
         %% 2. Frame-to-frame linking (0.40 -> 0.88).
-        waitbar(0.40, wb, 'Linking detections...');
-        tracks = trackLinkLAP(detections, p, wb, 0.40, 0.88);
+        confirmedKeys = [];
+        if getf(p, 'useFwdBwd', false)
+            waitbar(0.40, wb, 'Linking detections (forward + backward)...');
+            [tracks, confirmedKeys] = trackLinkFwdBwd(detections, p, wb, 0.40, 0.88);
+        else
+            waitbar(0.40, wb, 'Linking detections...');
+            tracks = trackLinkLAP(detections, p, wb, 0.40, 0.88);
+        end
 
         if isempty(tracks)
             waitbar(1, wb, 'Done -- no tracks found.');
@@ -78,7 +84,13 @@ function tracks = trackCompute(labelStack, p)
             return
         end
 
-        %% 4. Derived quantities (0.96 -> 1.00).
+        %% 4. Apply confirmed field from fwd-bwd pass (if used).
+        if ~isempty(confirmedKeys)
+            waitbar(0.96, wb, 'Applying confirmation flags...');
+            tracks = applyConfirmedField(tracks, confirmedKeys);
+        end
+
+        %% 5. Derived quantities (0.96 -> 1.00).
         waitbar(0.96, wb, 'Computing velocities and streaming flags...');
         umPerPxPerFrame = p.pixelSize / p.frameInterval;
         for i = 1:numel(tracks)
@@ -86,7 +98,7 @@ function tracks = trackCompute(labelStack, p)
             tracks(i).streaming = tracks(i).speed > p.streamingThreshold;
         end
 
-        %% 5. Sort by start frame.
+        %% 6. Sort by start frame.
         [~, ord] = sort(arrayfun(@(t) t.frames(1), tracks));
         tracks = tracks(ord);
 
@@ -112,6 +124,10 @@ function closeWaitbar(wb)
         end
     catch
     end
+end
+
+function v = getf(s, field, default)
+    if isfield(s, field) && ~isempty(s.(field)), v = s.(field); else, v = default; end
 end
 
 function p = mergeDefaults(p)

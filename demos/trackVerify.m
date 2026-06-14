@@ -81,10 +81,11 @@ function trackVerify(tracks, imStack, p)
     hold(ax2,'on');
 
     for k = 1:nTr
-        tr = tracks(k);
+        tr  = tracks(k);
         col = cmap(mod(k-1, size(cmap,1))+1, :);
-        plot(ax1, tr.frames, tr.x, '-', 'Color', col, 'LineWidth', 1);
-        plot(ax2, tr.frames, tr.y, '-', 'Color', col, 'LineWidth', 1);
+        conf = getConfirmed(tr);
+        plotTrackLine(ax1, tr.frames, tr.x, col, conf, 1);
+        plotTrackLine(ax2, tr.frames, tr.y, col, conf, 1);
     end
     xlabel(ax1,'Frame');  ylabel(ax1,'X (px)');  title(ax1,'X-position vs frame');
     xlabel(ax2,'Frame');  ylabel(ax2,'Y (px)');  title(ax2,'Y-position vs frame');
@@ -103,9 +104,9 @@ function trackVerify(tracks, imStack, p)
         spd = tr.speed;
         spd(isnan(spd)) = 0;
         allSpeeds = [allSpeeds, spd]; %#ok<AGROW>
-        col = cmap(mod(k-1, size(cmap,1))+1, :);
-        plot(ax3, tr.frames, spd, '-', 'Color', col, 'LineWidth', 1.5, ...
-             'DisplayName', sprintf('T%d', tr.id));
+        col  = cmap(mod(k-1, size(cmap,1))+1, :);
+        conf = getConfirmed(tr);
+        plotTrackLine(ax3, tr.frames, spd, col, conf, 1.5);
 
         % Mark spike frames with a cross.
         spikeF = spikeFrames(tr);
@@ -165,7 +166,8 @@ function trackVerify(tracks, imStack, p)
         for k = 1:nTr
             tr  = tracks(k);
             col = cmap(mod(k-1, size(cmap,1))+1, :);
-            plot(ax5, tr.x, tr.frames, '-', 'Color', col, 'LineWidth', 1.5);
+            plotTrackLine(ax5, tr.x, tr.frames, col, ...
+                          getConfirmed(tr), 1.5);
             spikeF = spikeFrames(tr);
             if ~isempty(spikeF)
                 [~, idx] = ismember(spikeF, tr.frames);
@@ -181,6 +183,39 @@ function trackVerify(tracks, imStack, p)
     end
 
     title(tl, sprintf('Track Verification  —  %d tracks, %d frames', nTr, nT));
+end
+
+function conf = getConfirmed(tr)
+%GETCONFIRMED  Return confirmed vector, or all-true if field absent.
+    if isfield(tr, 'confirmed')
+        conf = tr.confirmed;
+    else
+        conf = true(1, numel(tr.frames));
+    end
+end
+
+function plotTrackLine(ax, xData, yData, col, conf, lw)
+%PLOTTRACKLINE  Plot a track as solid (confirmed) and dashed (unconfirmed) segments.
+%   Confirmed segments drawn solid; unconfirmed dashed at reduced alpha.
+    if all(conf)
+        plot(ax, xData, yData, '-', 'Color', col, 'LineWidth', lw);
+        return
+    end
+    % Split into runs of confirmed/unconfirmed and draw each segment.
+    n = numel(xData);
+    i = 1;
+    while i <= n
+        j = i;
+        while j < n && conf(j+1) == conf(i)
+            j = j + 1;
+        end
+        if conf(i)
+            plot(ax, xData(i:j), yData(i:j), '-',  'Color', col, 'LineWidth', lw);
+        else
+            plot(ax, xData(i:j), yData(i:j), '--', 'Color', [col, 0.45], 'LineWidth', lw);
+        end
+        i = j + 1;
+    end
 end
 
 function frames = spikeFrames(tr)

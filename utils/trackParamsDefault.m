@@ -75,6 +75,7 @@ p.wDir              = 0.3;    % set to 0 to disable direction cost
 p.usePredictedGate  = true;   % gate on predicted position (recommended)
 p.useAreaCost       = true;
 p.useDirCost        = true;
+p.useFwdBwd         = false;  % run backward pass and tag unconfirmed links
 
 p.velocityAlpha     = 0.7;
 p.velocityMinFrames = 2;

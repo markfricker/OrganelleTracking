@@ -138,7 +138,8 @@ function trackCompareToggles(labelStack, imStack, p)
         for ti = varIdx
             tr  = tracks(ti);
             col = matchColour(tr, refTracks, cmap, NOVEL_COLOUR, OVERLAP_THR, DIST_THR);
-            plot(axK(k), tr.x, tr.frames, '-', 'Color', col, 'LineWidth', 1.5);
+            conf = getConfirmed(tr);
+            plotTrackLine(axK(k), tr.x, tr.frames, col, conf, 1.5);
 
             spikeF = spikeFrames(tr);
             if ~isempty(spikeF)
@@ -200,6 +201,30 @@ function col = matchColour(tr, refTracks, cmap, novelCol, overlapThr, distThr)
         end
     end
     col = novelCol;
+end
+
+function conf = getConfirmed(tr)
+    if isfield(tr, 'confirmed'), conf = tr.confirmed;
+    else, conf = true(1, numel(tr.frames)); end
+end
+
+function plotTrackLine(ax, xData, yData, col, conf, lw)
+    if all(conf)
+        plot(ax, xData, yData, '-', 'Color', col, 'LineWidth', lw);
+        return
+    end
+    n = numel(xData);
+    i = 1;
+    while i <= n
+        j = i;
+        while j < n && conf(j+1) == conf(i), j = j + 1; end
+        if conf(i)
+            plot(ax, xData(i:j), yData(i:j), '-',  'Color', col,          'LineWidth', lw);
+        else
+            plot(ax, xData(i:j), yData(i:j), '--', 'Color', [col, 0.45],  'LineWidth', lw);
+        end
+        i = j + 1;
+    end
 end
 
 function frames = spikeFrames(tr)
