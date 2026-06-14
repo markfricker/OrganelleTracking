@@ -68,10 +68,9 @@ function trackVerify(tracks, imStack, p)
 
     hasStack = ~isempty(imStack) && ndims(imStack) == 3; %#ok<ISMAT>
 
-    nPanels = 3 + hasStack;
     fig = figure('Name','Track Verification','NumberTitle','off', ...
                  'Position',[50 50 1400 900]);
-    tl  = tiledlayout(fig, 2, ceil(nPanels/2), 'TileSpacing','compact','Padding','compact');
+    tl  = tiledlayout(fig, 2, 3, 'TileSpacing','compact','Padding','compact');
 
     % -------------------------------------------------------------------------
     % Panel 1: X-position and Y-position vs frame
@@ -105,8 +104,17 @@ function trackVerify(tracks, imStack, p)
         spd(isnan(spd)) = 0;
         allSpeeds = [allSpeeds, spd]; %#ok<AGROW>
         col = cmap(mod(k-1, size(cmap,1))+1, :);
-        plot(ax3, tr.frames, spd, '-', 'Color', col, 'LineWidth', 1, ...
+        plot(ax3, tr.frames, spd, '-', 'Color', col, 'LineWidth', 1.5, ...
              'DisplayName', sprintf('T%d', tr.id));
+
+        % Mark spike frames with a cross.
+        spikeF = spikeFrames(tr);
+        if ~isempty(spikeF)
+            [~, idx] = ismember(spikeF, tr.frames);
+            idx = idx(idx > 0);
+            plot(ax3, tr.frames(idx), spd(idx), 'x', ...
+                 'Color', col, 'MarkerSize', 9, 'LineWidth', 2);
+        end
     end
     xlabel(ax3,'Frame');  ylabel(ax3,'Speed (px/frame)');
     title(ax3,'Per-track speed profile');
@@ -155,14 +163,32 @@ function trackVerify(tracks, imStack, p)
         for k = 1:nTr
             tr  = tracks(k);
             col = cmap(mod(k-1, size(cmap,1))+1, :);
-            % Plot centroid X per frame as a dot on the kymograph.
-            scatter(ax5, tr.x, tr.frames, 12, col, 'filled', 'MarkerFaceAlpha', 0.8);
+            plot(ax5, tr.x, tr.frames, '-', 'Color', col, 'LineWidth', 1.5);
+            spikeF = spikeFrames(tr);
+            if ~isempty(spikeF)
+                [~, idx] = ismember(spikeF, tr.frames);
+                idx = idx(idx > 0);
+                plot(ax5, tr.x(idx), tr.frames(idx), 'x', ...
+                     'Color', col, 'MarkerSize', 9, 'LineWidth', 2);
+            end
         end
         xlabel(ax5,'X (px)');  ylabel(ax5,'Frame');
         title(ax5,'Kymograph (max-proj Y) + track centroids');
     end
 
     title(tl, sprintf('Track Verification  —  %d tracks, %d frames', nTr, nT));
+end
+
+function frames = spikeFrames(tr)
+    spd = tr.speed;
+    spd(isnan(spd)) = 0;
+    frames = [];
+    if numel(spd) < 3, return, end
+    med = median(spd(spd > 0));
+    if med == 0, return, end
+    jumps    = abs(diff(spd));
+    spikeObs = find(jumps > 2*med) + 1;
+    frames   = tr.frames(spikeObs);
 end
 
 function v = getf(s, field, default)
