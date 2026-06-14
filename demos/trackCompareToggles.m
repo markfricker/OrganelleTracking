@@ -12,18 +12,17 @@ function trackCompareToggles(labelStack, imStack, p)
 %     Col 4  +DirCost      — adds motion-direction penalty
 %     Col 5  All on        — full model (current defaults)
 %
-%   Tracks that are spatially identical across ALL five configurations are
-%   suppressed — only tracks that change under at least one toggle are shown.
-%   This focuses the comparison on the objects where the toggles actually
-%   have an effect.
+%   Invariant tracks (spatially identical in ALL five configurations) are
+%   drawn first as faint grey lines so they provide spatial context without
+%   dominating.  Variable tracks are drawn on top in colour, with 'x'
+%   markers at speed-spike frames.  This focuses attention on the objects
+%   where the toggles actually have an effect.
 %
-%   Each column shows a kymograph (max-proj along Y) with variable track
-%   centroids overlaid, coloured consistently by their ID in the "all on"
-%   reference.  A summary line below each column shows:
-%     nTr    = total tracks (surviving minTrackLength filter)
-%     nVar   = number of variable tracks shown
-%     medL   = median track length (frames)
-%     spikes = tracks with ≥1 speed jump > 2× their own median speed
+%   Colours are assigned from the "all on" reference so the same physical
+%   object has the same colour across columns.  Tracks with no match in the
+%   reference (only present in this config) are shown in bright red.
+%
+%   Title of each column: config name + "nTr tracks / nVar variable / nSpk spikes"
 %
 %   INPUTS
 %     labelStack : [nY nX nT] uint16 label matrix from organelle segment.
@@ -36,8 +35,11 @@ function trackCompareToggles(labelStack, imStack, p)
 %     OVERLAP_THR  Minimum fraction of frames in common for a match [0,1].
 %     DIST_THR     Maximum mean centroid distance on shared frames (px).
 
-    OVERLAP_THR = 0.70;
-    DIST_THR    = 3.0;
+    OVERLAP_THR  = 0.70;
+    DIST_THR     = 3.0;
+    INV_ALPHA    = 0.18;   % opacity of invariant (background) lines
+    INV_COLOUR   = [0.55 0.55 0.55];
+    NOVEL_COLOUR = [0.9 0.15 0.15];   % tracks present here but not in reference
 
     if nargin < 2, imStack = []; end
     if nargin < 3, p = trackParamsDefault(); end
@@ -66,13 +68,11 @@ function trackCompareToggles(labelStack, imStack, p)
         fprintf('  %s: %d tracks\n', configs{k,4}, numel(allTracks{k}));
     end
 
-    % ---- Find invariant tracks using the reference (all on) ----------------
-    % A track in config k is invariant if it matches a track in EVERY other config.
-    % We build a per-config logical mask: isVar(k){t} = true if track t is variable.
+    % ---- Classify each track as invariant or variable ----------------------
     isVar = cell(1, nCfg);
     for k = 1:nCfg
-        nTr       = numel(allTracks{k});
-        isVar{k}  = true(1, nTr);   % start as all variable
+        nTr      = numel(allTracks{k});
+        isVar{k} = true(1, nTr);
         for t = 1:nTr
             matchedAll = true;
             for kk = 1:nCfg
@@ -83,14 +83,12 @@ function trackCompareToggles(labelStack, imStack, p)
                 end
             end
             if matchedAll
-                isVar{k}(t) = false;   % identical in all configs — suppress
+                isVar{k}(t) = false;
             end
         end
     end
 
-    % ---- Assign colours from reference config --------------------------------
-    % Tracks in other configs are coloured by their best match in the reference.
-    % Unmatched tracks (new in this config) get a fixed grey.
+    % ---- Colour map from reference ------------------------------------------
     refTracks = allTracks{REF};
     nRef      = numel(refTracks);
     cmap      = lines(max(nRef, 1));
@@ -98,9 +96,8 @@ function trackCompareToggles(labelStack, imStack, p)
         cmap = repmat(cmap, ceil(nRef/size(cmap,1)), 1);
         cmap = cmap(1:nRef,:);
     end
-    greyCol = [0.6 0.6 0.6];
 
-    % ---- Build kymograph background -----------------------------------------
+    % ---- Kymograph background -----------------------------------------------
     if ~isempty(imStack) && isequal(size(imStack), [nY nX nT])
         kymo = squeeze(max(double(imStack), [], 1))';   % [nT x nX]
         kymo = mat2gray(kymo);
@@ -108,45 +105,41 @@ function trackCompareToggles(labelStack, imStack, p)
         kymo = 0.15 * ones(nT, nX);
     end
 
-    % ---- Plot ---------------------------------------------------------------
+    % ---- Plot — single row of kymographs ------------------------------------
     fig = figure('Name','Toggle Comparison','NumberTitle','off', ...
-                 'Position',[30 30 300*nCfg 520]);
-    tl  = tiledlayout(fig, 2, nCfg, 'TileSpacing','compact','Padding','compact');
-    title(tl, 'LAP tracker — cost toggle comparison (variable tracks only)', ...
-          'FontWeight','bold');
+                 'Position',[30 30 300*nCfg 480]);
+    tl  = tiledlayout(fig, 1, nCfg, 'TileSpacing','compact','Padding','compact');
+    title(tl, 'LAP tracker — cost toggle comparison', 'FontWeight','bold');
 
     axK = gobjects(1, nCfg);
 
     for k = 1:nCfg
         tracks = allTracks{k};
         nTr    = numel(tracks);
-        varIdx = find(isVar{k});
+        invIdx = find(~isVar{k});
+        varIdx = find( isVar{k});
         nVar   = numel(varIdx);
+        nSpk   = countSpikes(tracks(varIdx));
 
-        % Summary stats (all tracks, not just variable).
-        if nTr > 0
-            lengths = arrayfun(@(t) numel(t.frames), tracks);
-            medL    = median(lengths);
-            spikes  = countSpikes(tracks);
-        else
-            medL = 0;  spikes = 0;
-        end
-
-        % ---- Kymograph tile (top row) ----------------------------------------
         axK(k) = nexttile(tl, k);
         imagesc(axK(k), kymo);
         colormap(axK(k), gray);
         axis(axK(k), 'tight');
         hold(axK(k), 'on');
 
-        for ti = varIdx
-            tr   = tracks(ti);
-            col  = matchColour(tr, refTracks, cmap, greyCol, OVERLAP_THR, DIST_THR);
+        % ---- Invariant tracks first (faint grey, no spikes) -----------------
+        for ti = invIdx
+            tr = tracks(ti);
+            plot(axK(k), tr.x, tr.frames, '-', ...
+                 'Color', [INV_COLOUR, INV_ALPHA], 'LineWidth', 1);
+        end
 
-            % Line joining centroids along time axis.
+        % ---- Variable tracks on top (coloured, spikes marked) ---------------
+        for ti = varIdx
+            tr  = tracks(ti);
+            col = matchColour(tr, refTracks, cmap, NOVEL_COLOUR, OVERLAP_THR, DIST_THR);
             plot(axK(k), tr.x, tr.frames, '-', 'Color', col, 'LineWidth', 1.5);
 
-            % Spike markers: frames where speed jumps > 2× local median.
             spikeF = spikeFrames(tr);
             if ~isempty(spikeF)
                 [~, idx] = ismember(spikeF, tr.frames);
@@ -156,26 +149,19 @@ function trackCompareToggles(labelStack, imStack, p)
             end
         end
 
-        title(axK(k), configs{k,4}, 'FontWeight','bold');
+        ttl = sprintf('%s\n%d tracks / %d var / %d spk', ...
+                      configs{k,4}, nTr, nVar, nSpk);
+        title(axK(k), ttl, 'FontWeight','bold', 'FontSize', 9);
         if k == 1
             ylabel(axK(k), 'Frame');
         else
             set(axK(k), 'YTickLabel', {});
         end
         xlabel(axK(k), 'X (px)');
-
-        % ---- Stats tile (bottom row) -----------------------------------------
-        nexttile(tl, nCfg + k);
-        axis off
-        txt = sprintf('tracks: %d\nshown:  %d\nmedLen: %.0f fr\nspikes: %d', ...
-                      nTr, nVar, medL, spikes);
-        text(0.5, 0.5, txt, 'Units','normalized', ...
-             'HorizontalAlignment','center','VerticalAlignment','middle', ...
-             'FontSize', 10);
     end
 
     linkaxes(axK, 'xy');
-    fprintf('Done. Invariant tracks suppressed; showing only variable tracks.\n');
+    fprintf('Done.\n');
 end
 
 % -------------------------------------------------------------------------
@@ -183,7 +169,6 @@ end
 % -------------------------------------------------------------------------
 
 function tf = anyMatch(tr, candidates, overlapThr, distThr)
-%ANYMATCH  True if tr matches at least one track in candidates.
     tf = false;
     for k = 1:numel(candidates)
         if tracksMatch(tr, candidates(k), overlapThr, distThr)
@@ -194,60 +179,41 @@ function tf = anyMatch(tr, candidates, overlapThr, distThr)
 end
 
 function tf = tracksMatch(a, b, overlapThr, distThr)
-%TRACKSMATCH  True if tracks a and b share enough frames with close centroids.
     sharedF = intersect(a.frames, b.frames);
     nShared = numel(sharedF);
-    if nShared == 0
-        tf = false;
-        return
+    if nShared == 0, tf = false; return, end
+    if nShared / min(numel(a.frames), numel(b.frames)) < overlapThr
+        tf = false; return
     end
-    % Fraction of the shorter track covered by shared frames.
-    overlapFrac = nShared / min(numel(a.frames), numel(b.frames));
-    if overlapFrac < overlapThr
-        tf = false;
-        return
-    end
-    % Mean centroid distance on shared frames.
     [~, ia] = ismember(sharedF, a.frames);
     [~, ib] = ismember(sharedF, b.frames);
-    dx   = a.x(ia) - b.x(ib);
-    dy   = a.y(ia) - b.y(ib);
-    dist = mean(hypot(dx, dy));
-    tf   = dist < distThr;
+    tf = mean(hypot(a.x(ia) - b.x(ib), a.y(ia) - b.y(ib))) < distThr;
 end
 
-function col = matchColour(tr, refTracks, cmap, greyCol, overlapThr, distThr)
-%MATCHCOLOUR  Return colour from refTracks colour map, or grey if unmatched.
+function col = matchColour(tr, refTracks, cmap, novelCol, overlapThr, distThr)
     for k = 1:numel(refTracks)
         if tracksMatch(tr, refTracks(k), overlapThr, distThr)
             col = cmap(mod(k-1, size(cmap,1))+1, :);
             return
         end
     end
-    col = greyCol;
+    col = novelCol;
 end
 
-% -------------------------------------------------------------------------
 function frames = spikeFrames(tr)
-%SPIKEFRAMES  Return frame numbers where speed jumps by > 2× local median.
-%   The jump at observation i is assigned to frame i+1 (the later frame).
     spd = tr.speed;
     spd(isnan(spd)) = 0;
     frames = [];
     if numel(spd) < 3, return, end
     med = median(spd(spd > 0));
     if med == 0, return, end
-    jumps = abs(diff(spd));          % length nObs-1; jump(i) is between obs i and i+1
-    spikeObs = find(jumps > 2*med) + 1;   % index into tr.frames
-    frames = tr.frames(spikeObs);
+    spikeObs = find(abs(diff(spd)) > 2*med) + 1;
+    frames   = tr.frames(spikeObs);
 end
 
 function n = countSpikes(tracks)
-%COUNTSPIKES  Count tracks with ≥1 speed spike.
     n = 0;
     for k = 1:numel(tracks)
-        if ~isempty(spikeFrames(tracks(k)))
-            n = n + 1;
-        end
+        if ~isempty(spikeFrames(tracks(k))), n = n + 1; end
     end
 end
