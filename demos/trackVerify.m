@@ -112,6 +112,8 @@ function trackVerify(tracks, imStack, p)
         if ~isempty(spikeF)
             [~, idx] = ismember(spikeF, tr.frames);
             idx = idx(idx > 0);
+            plot(ax3, tr.frames(idx), spd(idx), 'o', ...
+                 'Color', 'w', 'MarkerFaceColor', 'w', 'MarkerSize', 12, 'LineWidth', 1);
             plot(ax3, tr.frames(idx), spd(idx), 'x', ...
                  'Color', col, 'MarkerSize', 9, 'LineWidth', 2);
         end
@@ -168,6 +170,8 @@ function trackVerify(tracks, imStack, p)
             if ~isempty(spikeF)
                 [~, idx] = ismember(spikeF, tr.frames);
                 idx = idx(idx > 0);
+                plot(ax5, tr.x(idx), tr.frames(idx), 'o', ...
+                     'Color', 'w', 'MarkerFaceColor', 'w', 'MarkerSize', 12, 'LineWidth', 1);
                 plot(ax5, tr.x(idx), tr.frames(idx), 'x', ...
                      'Color', col, 'MarkerSize', 9, 'LineWidth', 2);
             end

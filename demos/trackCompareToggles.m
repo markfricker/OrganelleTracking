@@ -144,6 +144,8 @@ function trackCompareToggles(labelStack, imStack, p)
             if ~isempty(spikeF)
                 [~, idx] = ismember(spikeF, tr.frames);
                 idx = idx(idx > 0);
+                plot(axK(k), tr.x(idx), tr.frames(idx), 'o', ...
+                     'Color', 'w', 'MarkerFaceColor', 'w', 'MarkerSize', 12, 'LineWidth', 1);
                 plot(axK(k), tr.x(idx), tr.frames(idx), 'x', ...
                      'Color', col, 'MarkerSize', 9, 'LineWidth', 2);
             end
