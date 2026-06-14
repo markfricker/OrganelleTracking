@@ -9,54 +9,82 @@ function p = trackParamsDefault()
 %   Linking parameters
 %   ------------------
 %   maxDisplacement    Maximum allowed frame-to-frame displacement (px).
-%                      Detections further away than this are never linked
-%                      regardless of cost.
 %   costNonAssignment  Cost of starting a new track or ending an existing
-%                      one.  Set to (maxDisplacement/2)^2 so a displacement
-%                      beyond half the search radius prefers birth/death.
+%                      one.  Set higher to prefer gaps over wrong links.
 %
-%   Cost weights  (wDisp + wOrient + wShape = cost range [0, sum])
-%   wDisp          Weight on normalised squared displacement.
-%   wOrient        Weight on normalised squared orientation difference.
-%   wShape         Weight on normalised squared aspect-ratio difference.
+%   Cost weights  (weighted sum, each term in [0,1]^2)
+%   wDisp    Normalised squared displacement to predicted position.
+%   wOrient  Normalised squared axis-angle difference (mod 180 deg).
+%   wShape   Normalised squared aspect-ratio difference.
+%   wArea    Normalised squared relative area change (0 = off).
+%   wDir     Squared motion-direction inconsistency (0 = off).
+%
+%   Linking gates (toggles)
+%   -----------------------
+%   usePredictedGate   true  Gate candidate search on predicted position
+%                            rather than last known position.  Tighter
+%                            and more appropriate for fast-moving objects;
+%                            the gate radius is maxDisplacement from
+%                            predX/predY.
+%                      false Legacy behaviour: gate is 2*maxDisplacement
+%                            from last known position (wider, less strict).
+%
+%   useAreaCost        true  Penalise large area changes between frames.
+%                            Helps reject incorrect links when a slow mito
+%                            is nearby and has a different size.
+%
+%   useDirCost         true  Penalise candidates whose displacement from
+%                            the predicted position is inconsistent with
+%                            the track velocity direction.  Most effective
+%                            for streaming mitochondria with established
+%                            velocity estimates.
 %
 %   Velocity prediction
 %   -------------------
-%   velocityAlpha  Exponential moving average weight for velocity update.
-%                  0 = always use instantaneous velocity (noisy),
-%                  1 = never update (fixed from first frame).
-%                  0.7 gives a ~3-frame smoothing window.
-%   velocityMinFrames  Minimum track length before velocity prediction is
-%                      applied.  Short tracks use last-position linking.
+%   velocityAlpha      EMA weight for velocity update (0=instant, 1=frozen).
+%   velocityMinFrames  Frames before velocity prediction is trusted.
 %
 %   Gap closing
 %   -----------
-%   gapMax         Maximum number of missing frames that can be bridged.
-%   gapCostScale   Cost multiplier per missing frame (discourages long gaps).
+%   gapMax         Maximum missing frames that can be bridged.
+%   gapCostScale   Cost multiplier per missing frame.
 %
 %   Post-filter
 %   -----------
 %   minTrackLength  Tracks shorter than this (frames) are discarded.
 %
+%   Streaming detection
+%   -------------------
+%   streamingThreshold  Speed (px/frame) above which a frame is flagged
+%                       as streaming.
+%
 %   Acquisition
 %   -----------
-%   pixelSize      um per pixel (for physical-unit outputs).
-%   frameInterval  Seconds per frame (for velocity in um/s).
+%   pixelSize      um per pixel.
+%   frameInterval  Seconds per frame.
 
 p.maxDisplacement   = 20;     % px  (~1.8 um at 90 nm/px)
-p.costNonAssignment = 50;     % dimensionless (see above)
+p.costNonAssignment = 50;
 
 p.wDisp             = 1.0;
 p.wOrient           = 0.3;
 p.wShape            = 0.1;
+p.wArea             = 0.2;    % set to 0 to disable area cost
+p.wDir              = 0.3;    % set to 0 to disable direction cost
 
-p.velocityAlpha     = 0.7;    % EMA smoothing (0 = instant, 1 = frozen)
-p.velocityMinFrames = 2;      % frames before prediction is trusted
+p.usePredictedGate  = true;   % gate on predicted position (recommended)
+p.useAreaCost       = true;
+p.useDirCost        = true;
 
-p.gapMax            = 3;      % frames
-p.gapCostScale      = 1.5;    % cost x scale per gap frame
+p.velocityAlpha     = 0.7;
+p.velocityMinFrames = 2;
 
-p.minTrackLength    = 5;      % frames
+p.gapMax            = 3;
+p.gapCostScale      = 1.5;
+
+p.minTrackLength    = 5;
+
+p.streamingThreshold = 11;    % px/frame (~1 um/s at 90 nm/px, 0.4 s/frame)
 
 p.pixelSize         = 0.09;   % um/px
 p.frameInterval     = 0.4;    % s/frame

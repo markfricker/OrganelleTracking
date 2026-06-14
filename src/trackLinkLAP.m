@@ -16,9 +16,15 @@ function tracks = trackLinkLAP(detections, p, wb, wbLo, wbHi)
 %     Orientation    - Minimum angular difference of the major axis (mod pi).
 %                      Handles the 180 deg ambiguity of regionprops orientation.
 %     Shape          - |delta aspect-ratio| / p.maxAspectRatioNorm.
+%     Area           - Relative area change (optional, toggle p.useAreaCost).
+%     Direction      - Inconsistency between actual displacement and predicted
+%                      velocity direction (optional, toggle p.useDirCost).
 %
-%   Any entry whose raw displacement exceeds p.maxDisplacement is forced to
-%   Inf (hard cutoff), preventing spurious long-range links.
+%   Spatial gate:
+%     usePredictedGate = true  (default): gate is maxDisplacement from the
+%       predicted position.  Tighter — appropriate for fast-moving objects.
+%     usePredictedGate = false: legacy behaviour — gate is 2*maxDisplacement
+%       from the last known position.  Wider, less strict.
 %
 %   Requires MATLAB Computer Vision Toolbox (assignDetectionsToTracks).
 %
@@ -66,6 +72,13 @@ function tracks = trackLinkLAP(detections, p, wb, wbLo, wbHi)
     velMinFrames    = p.velocityMinFrames;
     costNonAssign   = p.costNonAssignment;
 
+    % Optional cost-term flags (default on if field missing).
+    usePredGate = getf(p, 'usePredictedGate', true);
+    useAreaCost = getf(p, 'useAreaCost',       true);
+    useDirCost  = getf(p, 'useDirCost',        true);
+    wArea       = getf(p, 'wArea',             0.2);
+    wDir        = getf(p, 'wDir',              0.3);
+
     for iT = 1:nT
 
         if useWb
@@ -101,13 +114,16 @@ function tracks = trackLinkLAP(detections, p, wb, wbLo, wbHi)
         cost = inf(nTracks, nDet);
 
         % Pre-compute predicted positions for every active track.
-        predX = zeros(nTracks, 1);
-        predY = zeros(nTracks, 1);
+        predX      = zeros(nTracks, 1);
+        predY      = zeros(nTracks, 1);
+        hasPred    = false(nTracks, 1);   % true when velocity estimate is reliable
+
         for i = 1:nTracks
             if state(i).nObs >= velMinFrames && ...
                ~(isnan(state(i).vx) || isnan(state(i).vy))
-                predX(i) = state(i).lastX + state(i).vx;
-                predY(i) = state(i).lastY + state(i).vy;
+                predX(i)   = state(i).lastX + state(i).vx;
+                predY(i)   = state(i).lastY + state(i).vy;
+                hasPred(i) = true;
             else
                 predX(i) = state(i).lastX;
                 predY(i) = state(i).lastY;
@@ -120,33 +136,81 @@ function tracks = trackLinkLAP(detections, p, wb, wbLo, wbHi)
             if state(i).lastFrame < iT - 1
                 continue
             end
+
             for j = 1:nDet
-                % Hard spatial cutoff against last known position (2x radius).
-                dx0 = det.x(j) - state(i).lastX;
-                dy0 = det.y(j) - state(i).lastY;
-                if (dx0^2 + dy0^2) > maxDispSq * 4
-                    continue
+
+                % ---- Spatial gate -------------------------------------------
+                if usePredGate
+                    % Gate on predicted position with radius maxDisp.
+                    dxP = det.x(j) - predX(i);
+                    dyP = det.y(j) - predY(i);
+                    if (dxP^2 + dyP^2) > maxDispSq
+                        continue
+                    end
+                    cDisp = (dxP^2 + dyP^2) / maxDispSq;
+                else
+                    % Legacy: wider gate (2x) from last known position.
+                    dx0 = det.x(j) - state(i).lastX;
+                    dy0 = det.y(j) - state(i).lastY;
+                    if (dx0^2 + dy0^2) > maxDispSq * 4
+                        continue
+                    end
+                    % Displacement cost measured from predicted position.
+                    dxP = det.x(j) - predX(i);
+                    dyP = det.y(j) - predY(i);
+                    cDisp = (dxP^2 + dyP^2) / maxDispSq;
                 end
 
-                % Displacement to predicted position (normalised).
-                dx  = det.x(j) - predX(i);
-                dy  = det.y(j) - predY(i);
-                cDisp  = (dx^2 + dy^2) / maxDispSq;
-
-                % Orientation cost: minimum angle mod 180 deg.
+                % ---- Orientation cost (mod 180 deg) -------------------------
                 dTheta = mod(abs(det.orientation(j) - ...
                               trackLastOrientation(buf, state(i).id)), 180);
                 dTheta = min(dTheta, 180 - dTheta);   % range 0..90
                 cOrient = (dTheta / 90)^2;
 
-                % Aspect-ratio cost.
-                dAR    = abs(det.aspectRatio(j) - ...
-                             trackLastAR(buf, state(i).id));
+                % ---- Aspect-ratio cost --------------------------------------
+                dAR    = abs(det.aspectRatio(j) - trackLastAR(buf, state(i).id));
                 cShape = min(dAR / maxAR, 1)^2;
 
-                c = p.wDisp * cDisp + p.wOrient * cOrient + p.wShape * cShape;
+                % ---- Area cost (optional) -----------------------------------
+                cArea = 0;
+                if useAreaCost
+                    lastA = trackLastArea(buf, state(i).id);
+                    if lastA > 0
+                        relDeltaA = abs(det.area(j) - lastA) / lastA;
+                        cArea = min(relDeltaA, 1)^2;
+                    end
+                end
 
-                % Final hard cutoff on normalised displacement alone.
+                % ---- Direction cost (optional) ------------------------------
+                % Penalise when the candidate's displacement from the last
+                % position points in a direction inconsistent with the track's
+                % velocity.  Only applied when a reliable velocity exists.
+                cDir = 0;
+                if useDirCost && hasPred(i) && ...
+                   ~(isnan(state(i).vx) || state(i).vx == 0 && state(i).vy == 0)
+                    % Unit vector of track velocity.
+                    vMag = hypot(state(i).vx, state(i).vy);
+                    uvx  = state(i).vx / vMag;
+                    uvy  = state(i).vy / vMag;
+                    % Displacement from last known position.
+                    dx0  = det.x(j) - state(i).lastX;
+                    dy0  = det.y(j) - state(i).lastY;
+                    dMag = hypot(dx0, dy0);
+                    if dMag > 0
+                        cosTheta = (dx0 * uvx + dy0 * uvy) / dMag;
+                        % cosTheta in [-1,1]; 1 = perfect alignment.
+                        % Map to cost: 0 when aligned, 1 when opposed.
+                        cDir = ((1 - cosTheta) / 2)^2;
+                    end
+                end
+
+                c = p.wDisp  * cDisp   + ...
+                    p.wOrient * cOrient + ...
+                    p.wShape  * cShape  + ...
+                    wArea     * cArea   + ...
+                    wDir      * cDir;
+
+                % Final hard cutoff: normalised displacement > 1 is rejected.
                 if cDisp > 1
                     c = Inf;
                 end
@@ -225,6 +289,15 @@ function val = trackLastAR(buf, id)
     end
 end
 
+function val = trackLastArea(buf, id)
+    idx = find([buf.id] == id, 1, 'last');
+    if isempty(idx) || isempty(buf(idx).area)
+        val = 0;
+    else
+        val = buf(idx).area(end);
+    end
+end
+
 function [state, buf, nextID] = createTrack(state, buf, nextID, iT, det, k, vx, vy)
     ns.id        = nextID;
     ns.lastX     = det.x(k);
@@ -286,5 +359,13 @@ function tracks = consolidateTracks(buf)
                 tracks(i).(fns{f}) = v(:)';
             end
         end
+    end
+end
+
+function v = getf(s, field, default)
+    if isfield(s, field) && ~isempty(s.(field))
+        v = s.(field);
+    else
+        v = default;
     end
 end
