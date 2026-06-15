@@ -209,21 +209,12 @@ function conf = getConfirmed(tr)
 end
 
 function plotTrackLine(ax, xData, yData, col, conf, lw)
-    if all(conf)
-        plot(ax, xData, yData, '-', 'Color', col, 'LineWidth', lw);
-        return
-    end
-    n = numel(xData);
-    i = 1;
-    while i <= n
-        j = i;
-        while j < n && conf(j+1) == conf(i), j = j + 1; end
-        if conf(i)
-            plot(ax, xData(i:j), yData(i:j), '-',  'Color', col,          'LineWidth', lw);
-        else
-            plot(ax, xData(i:j), yData(i:j), '--', 'Color', [col, 0.45],  'LineWidth', lw);
-        end
-        i = j + 1;
+    plot(ax, xData, yData, '-', 'Color', col, 'LineWidth', lw);
+    if ~all(conf)
+        unconf = find(~conf);
+        plot(ax, xData(unconf), yData(unconf), 'd', ...
+             'Color', col, 'MarkerSize', 6, 'LineWidth', 1.2, ...
+             'MarkerFaceColor', 'w');
     end
 end
 

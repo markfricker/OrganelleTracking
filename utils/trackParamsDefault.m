@@ -77,6 +77,9 @@ p.useAreaCost       = true;
 p.useDirCost        = true;
 p.useFwdBwd         = false;  % run backward pass and tag unconfirmed links
 
+p.resolveMerges     = false;  % split transient merges via temporal seeds, then re-track
+p.mergeMinSeedSep   = 4;      % px; min geodesic seed separation to attempt a merge split
+
 p.velocityAlpha     = 0.7;
 p.velocityMinFrames = 2;
 

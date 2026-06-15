@@ -1,5 +1,7 @@
-function tracks = trackCompute(labelStack, p)
+function [tracks, mergeInfo, labelStack] = trackCompute(labelStack, p)
 %TRACKCOMPUTE  Top-level organelle tracking from a segmented label stack.
+%   Third output labelStack is the (possibly merge-resolved) label stack —
+%   identical to the input unless p.resolveMerges split fused blobs.
 %
 %   tracks = trackCompute(labelStack, p)
 %
@@ -55,6 +57,9 @@ function tracks = trackCompute(labelStack, p)
     figure(wb);    % bring waitbar to front (App Designer uifigure otherwise covers it)
 
     tracks = struct([]);
+    mergeInfo = struct('nSplit', 0, 'frames', [], ...
+        'splits', struct('frame', {}, 'hostLabel', {}, 'newLabel', {}, ...
+                         'pHidden', {}, 'pHost', {}));
 
     try
         %% 1. Extract features (0 -> 0.40).
@@ -88,6 +93,27 @@ function tracks = trackCompute(labelStack, p)
         if ~isempty(confirmedKeys)
             waitbar(0.96, wb, 'Applying confirmation flags...');
             tracks = applyConfirmedField(tracks, confirmedKeys);
+        end
+
+        %% 4b. Resolve transient merges (optional): split fused blobs using
+        %% temporally-interpolated seeds, then re-track on the updated stack.
+        if p.resolveMerges
+            waitbar(0.96, wb, 'Resolving transient merges...');
+            [labelStack, mInfo] = trackResolveMerges(labelStack, tracks, p);
+            mergeInfo = mInfo;
+            if mInfo.nSplit > 0
+                detections = trackDetectionsExtract(labelStack, p, wb, 0.96, 0.97);
+                if p.useFwdBwd
+                    [tracks, confirmedKeys] = trackLinkFwdBwd(detections, p, wb, 0.97, 0.985);
+                else
+                    tracks = trackLinkLAP(detections, p, wb, 0.97, 0.985);
+                    confirmedKeys = [];
+                end
+                tracks = trackGapClose(tracks, detections, p);
+                if ~isempty(confirmedKeys)
+                    tracks = applyConfirmedField(tracks, confirmedKeys);
+                end
+            end
         end
 
         %% 5. Derived quantities (0.96 -> 1.00).

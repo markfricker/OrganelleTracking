@@ -195,26 +195,15 @@ function conf = getConfirmed(tr)
 end
 
 function plotTrackLine(ax, xData, yData, col, conf, lw)
-%PLOTTRACKLINE  Plot a track as solid (confirmed) and dashed (unconfirmed) segments.
-%   Confirmed segments drawn solid; unconfirmed dashed at reduced alpha.
-    if all(conf)
-        plot(ax, xData, yData, '-', 'Color', col, 'LineWidth', lw);
-        return
-    end
-    % Split into runs of confirmed/unconfirmed and draw each segment.
-    n = numel(xData);
-    i = 1;
-    while i <= n
-        j = i;
-        while j < n && conf(j+1) == conf(i)
-            j = j + 1;
-        end
-        if conf(i)
-            plot(ax, xData(i:j), yData(i:j), '-',  'Color', col, 'LineWidth', lw);
-        else
-            plot(ax, xData(i:j), yData(i:j), '--', 'Color', [col, 0.45], 'LineWidth', lw);
-        end
-        i = j + 1;
+%PLOTTRACKLINE  Plot a track as a continuous solid line with diamond markers
+%   at unconfirmed link junctions (fwd-bwd disagrees at that frame).
+%   This keeps the track visually whole while flagging uncertain joints.
+    plot(ax, xData, yData, '-', 'Color', col, 'LineWidth', lw);
+    if ~all(conf)
+        unconf = find(~conf);
+        plot(ax, xData(unconf), yData(unconf), 'd', ...
+             'Color', col, 'MarkerSize', 6, 'LineWidth', 1.2, ...
+             'MarkerFaceColor', 'w');
     end
 end
 
