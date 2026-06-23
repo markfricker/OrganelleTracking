@@ -6,7 +6,7 @@
 *.mdl.r*
 
 # project definition folders
-resources/project/
+
 
 # Derived content-obscured files
 *.p
