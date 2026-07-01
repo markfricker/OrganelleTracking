@@ -1,8 +1,19 @@
-function tracks = trackLinkLAP(detections, p, wb, wbLo, wbHi)
+function tracks = trackLinkLAP(detections, p, wb, wbLo, wbHi, pins)
 %TRACKLINKLAP  Link per-frame detections into tracks using LAP assignment.
 %
 %   tracks = trackLinkLAP(detections, p)
 %   tracks = trackLinkLAP(detections, p, wb, wbLo, wbHi)
+%   tracks = trackLinkLAP(detections, p, wb, wbLo, wbHi, pins)
+%
+%   pins : optional struct array of forced assignments (from manual relink
+%     edits), each with fields:
+%       frame    - source frame (the pin applies when linking frame+1)
+%       labelID  - source label at frame
+%       labelID2 - target label at frame+1
+%     For each pin, the corresponding (track,detection) cost-matrix cell is
+%     forced to 0 and all competing cells in that row/column are set to Inf,
+%     guaranteeing the solver honours the manual correction while still
+%     resolving everything else around it.
 %
 %   Iterates over consecutive frame pairs, building and solving a LAP cost
 %   matrix at each step.  Active track states (position, velocity) are
@@ -51,6 +62,7 @@ function tracks = trackLinkLAP(detections, p, wb, wbLo, wbHi)
 %       labelID       [1 x nObs] label in original stack
 
     useWb = nargin >= 3 && ~isempty(wb) && ishandle(wb);
+    if nargin < 6, pins = []; end
 
     nT = numel(detections);
 
@@ -218,6 +230,22 @@ function tracks = trackLinkLAP(detections, p, wb, wbLo, wbHi)
             end
         end
 
+        %% Apply pinned (manually-corrected) assignments for this transition.
+        % A pin with frame == iT-1 forces the link from that source label
+        % (found among the active tracks' most recent detection) to the
+        % given target label in the current frame's detections.
+        if ~isempty(pins)
+            for pk = 1:numel(pins)
+                if pins(pk).frame ~= iT - 1, continue; end
+                iRow = findTrackRowByLastLabel(state, buf, pins(pk).labelID, iT-1);
+                jCol = find(det.labelID == pins(pk).labelID2, 1);
+                if isempty(iRow) || isempty(jCol), continue; end
+                cost(iRow, :) = Inf;
+                cost(:, jCol) = Inf;
+                cost(iRow, jCol) = 0;
+            end
+        end
+
         %% Solve LAP.
         % Guard: replace any NaN entries (e.g. from degenerate regionprops
         % properties on near-circular objects) with Inf so they are never
@@ -270,6 +298,21 @@ end
 % -------------------------------------------------------------------------
 % Local helpers
 % -------------------------------------------------------------------------
+
+function iRow = findTrackRowByLastLabel(state, buf, labelID, frame)
+    % Find the state-array row whose track's most recent detection is
+    % exactly (frame, labelID) — i.e. the active track a pin's source
+    % anchor refers to.
+    iRow = [];
+    for i = 1:numel(state)
+        idx = find([buf.id] == state(i).id, 1, 'last');
+        if isempty(idx), continue; end
+        if buf(idx).frames(end) == frame && buf(idx).labelID(end) == labelID
+            iRow = i;
+            return
+        end
+    end
+end
 
 function val = trackLastOrientation(buf, id)
     idx = find([buf.id] == id, 1, 'last');

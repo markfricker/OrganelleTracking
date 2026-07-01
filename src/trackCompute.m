@@ -20,6 +20,10 @@ function [tracks, mergeInfo, labelStack] = trackCompute(labelStack, p)
 %                 C/Z plane before calling.
 %     p          : parameter struct (see trackParamsDefault for defaults).
 %                  Missing fields are filled from trackParamsDefault.
+%                  Optional p.pins: struct array of manually-corrected
+%                  (frame, labelID) -> (frame+1, labelID2) assignments to
+%                  force during LAP linking (see trackLinkLAP). Ignored
+%                  when p.useFwdBwd is true (not yet supported on that path).
 %
 %   OUTPUT
 %     tracks : struct array, one element per track (sorted by start frame).
@@ -67,12 +71,13 @@ function [tracks, mergeInfo, labelStack] = trackCompute(labelStack, p)
 
         %% 2. Frame-to-frame linking (0.40 -> 0.88).
         confirmedKeys = [];
+        pins = getf(p, 'pins', []);
         if getf(p, 'useFwdBwd', false)
             waitbar(0.40, wb, 'Linking detections (forward + backward)...');
             [tracks, confirmedKeys] = trackLinkFwdBwd(detections, p, wb, 0.40, 0.88);
         else
             waitbar(0.40, wb, 'Linking detections...');
-            tracks = trackLinkLAP(detections, p, wb, 0.40, 0.88);
+            tracks = trackLinkLAP(detections, p, wb, 0.40, 0.88, pins);
         end
 
         if isempty(tracks)
