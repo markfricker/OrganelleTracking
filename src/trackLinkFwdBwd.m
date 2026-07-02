@@ -1,8 +1,17 @@
-function [tracks, confirmedKeys] = trackLinkFwdBwd(detections, p, wb, wbLo, wbHi)
+function [tracks, confirmedKeys] = trackLinkFwdBwd(detections, p, wb, wbLo, wbHi, pins)
 %TRACKLINKFWDBWD  Forward-backward LAP linking with confirmation scoring.
 %
 %   [tracks, confirmedKeys] = trackLinkFwdBwd(detections, p)
 %   [tracks, confirmedKeys] = trackLinkFwdBwd(detections, p, wb, wbLo, wbHi)
+%   [tracks, confirmedKeys] = trackLinkFwdBwd(detections, p, wb, wbLo, wbHi, pins)
+%
+%   pins : optional struct array of forced assignments (see trackLinkLAP),
+%     anchored in ORIGINAL (forward-time) frame numbers. Applied directly
+%     to the forward pass. For the backward pass (run on time-reversed
+%     detections purely to build the confirmation map), each pin is
+%     transformed into backward-frame coordinates so a manually-forced
+%     link is confirmed by both passes rather than spuriously showing as
+%     "unconfirmed" just because it was never discovered independently.
 %
 %   Runs trackLinkLAP twice — forward and backward in time — then classifies
 %   each frame-to-frame link in the forward tracks as *confirmed* or
@@ -43,6 +52,7 @@ function [tracks, confirmedKeys] = trackLinkFwdBwd(detections, p, wb, wbLo, wbHi
 
     nT    = numel(detections);
     useWb = nargin >= 3 && ~isempty(wb) && ishandle(wb);
+    if nargin < 6, pins = []; end
     lo    = 0; hi = 1;
     if useWb, lo = wbLo; hi = wbHi; end
     mid   = lo + 0.5*(hi - lo);
@@ -50,19 +60,32 @@ function [tracks, confirmedKeys] = trackLinkFwdBwd(detections, p, wb, wbLo, wbHi
     % ---- Forward pass -------------------------------------------------------
     if useWb
         waitbar(lo, wb, 'Forward linking...');
-        tracks = trackLinkLAP(detections, p, wb, lo, mid);
+        tracks = trackLinkLAP(detections, p, wb, lo, mid, pins);
     else
-        tracks = trackLinkLAP(detections, p);
+        tracks = trackLinkLAP(detections, p, [], [], [], pins);
     end
 
     % ---- Backward pass on time-reversed detections --------------------------
     detBwd = flip(detections);   % detBwd{t} = detections{nT+1-t}
 
+    % Transform forward-time pins into backward-frame coordinates. A pin
+    % (frame=N, labelID=source@N, labelID2=target@N+1) corresponds, in
+    % backward time, to a link starting at backward frame (nT-N) with the
+    % TARGET label (the later original object becomes the backward
+    % "source") and ending at backward frame (nT-N+1) with the SOURCE
+    % label — i.e. source/target swap and the frame anchor shifts.
+    pinsBwd = pins;
+    for k = 1:numel(pins)
+        pinsBwd(k).frame    = nT - pins(k).frame;
+        pinsBwd(k).labelID  = pins(k).labelID2;
+        pinsBwd(k).labelID2 = pins(k).labelID;
+    end
+
     if useWb
         waitbar(mid, wb, 'Backward linking...');
-        tracksBwd = trackLinkLAP(detBwd, p, wb, mid, hi);
+        tracksBwd = trackLinkLAP(detBwd, p, wb, mid, hi, pinsBwd);
     else
-        tracksBwd = trackLinkLAP(detBwd, p);
+        tracksBwd = trackLinkLAP(detBwd, p, [], [], [], pinsBwd);
     end
 
     % ---- Build confirmed-link key set from backward tracks ------------------
