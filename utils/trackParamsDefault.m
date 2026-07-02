@@ -18,6 +18,8 @@ function p = trackParamsDefault()
 %   wShape   Normalised squared aspect-ratio difference.
 %   wArea    Normalised squared relative area change (0 = off).
 %   wDir     Squared motion-direction inconsistency (0 = off).
+%   wBoundary  Flat penalty [0,1] applied when the candidate touches the
+%              cell boundary (0 = off).
 %
 %   Linking gates (toggles)
 %   -----------------------
@@ -38,6 +40,15 @@ function p = trackParamsDefault()
 %                            the track velocity direction.  Most effective
 %                            for streaming mitochondria with established
 %                            velocity estimates.
+%
+%   useBoundaryCost    true  Penalise linking to a detection whose object
+%                            touches the cell boundary (clipped/partial —
+%                            centroid and shape are unreliable there). Soft
+%                            penalty via wBoundary, not a hard gate, so a
+%                            genuinely continuing boundary-hugging object
+%                            can still be linked when nothing better is
+%                            available. Requires p.boundaryLabels (see
+%                            trackDetectionsExtract) — a no-op without it.
 %
 %   Velocity prediction
 %   -------------------
@@ -71,10 +82,12 @@ p.wOrient           = 0.3;
 p.wShape            = 0.1;
 p.wArea             = 0.2;    % set to 0 to disable area cost
 p.wDir              = 0.3;    % set to 0 to disable direction cost
+p.wBoundary         = 0.3;    % set to 0 to disable boundary penalty
 
 p.usePredictedGate  = true;   % gate on predicted position (recommended)
 p.useAreaCost       = true;
 p.useDirCost        = true;
+p.useBoundaryCost   = true;   % no-op unless p.boundaryLabels is supplied
 p.useFwdBwd         = false;  % run backward pass and tag unconfirmed links
 
 p.resolveMerges     = false;  % split transient merges via temporal seeds, then re-track

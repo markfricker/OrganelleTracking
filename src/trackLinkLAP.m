@@ -85,11 +85,13 @@ function tracks = trackLinkLAP(detections, p, wb, wbLo, wbHi, pins)
     costNonAssign   = p.costNonAssignment;
 
     % Optional cost-term flags (default on if field missing).
-    usePredGate = getf(p, 'usePredictedGate', true);
-    useAreaCost = getf(p, 'useAreaCost',       true);
-    useDirCost  = getf(p, 'useDirCost',        true);
+    usePredGate    = getf(p, 'usePredictedGate', true);
+    useAreaCost    = getf(p, 'useAreaCost',       true);
+    useDirCost     = getf(p, 'useDirCost',        true);
+    useBoundaryCost = getf(p, 'useBoundaryCost',  true);
     wArea       = getf(p, 'wArea',             0.2);
     wDir        = getf(p, 'wDir',              0.3);
+    wBoundary   = getf(p, 'wBoundary',         0.3);
 
     for iT = 1:nT
 
@@ -216,11 +218,22 @@ function tracks = trackLinkLAP(detections, p, wb, wbLo, wbHi, pins)
                     end
                 end
 
-                c = p.wDisp  * cDisp   + ...
-                    p.wOrient * cOrient + ...
-                    p.wShape  * cShape  + ...
-                    wArea     * cArea   + ...
-                    wDir      * cDir;
+                % ---- Boundary cost (optional) --------------------------------
+                % Flat penalty when the candidate touches the cell boundary
+                % -- centroid/shape are unreliable for a clipped object, so
+                % it's a lower-confidence link. No-op unless the caller
+                % supplied p.boundaryLabels to trackDetectionsExtract.
+                cBoundary = 0;
+                if useBoundaryCost && isfield(det, 'touchesBoundary') && det.touchesBoundary(j)
+                    cBoundary = 1;
+                end
+
+                c = p.wDisp  * cDisp     + ...
+                    p.wOrient * cOrient   + ...
+                    p.wShape  * cShape    + ...
+                    wArea     * cArea     + ...
+                    wDir      * cDir      + ...
+                    wBoundary * cBoundary;
 
                 % Final hard cutoff: normalised displacement > 1 is rejected.
                 if cDisp > 1
